@@ -142,6 +142,7 @@ def search_video():
     """
     Search for a YouTube video directly using yt_dlp's ytsearch feature.
     Returns a list of up to 5 search results with title, video URL, duration, and thumbnail URL.
+    Uses the cookies file for authenticated requests if necessary.
     """
     try:
         query = request.args.get('title')
@@ -154,6 +155,7 @@ def search_video():
             'quiet': True,
             'skip_download': True,
             'extract_flat': False,  # Set to False to extract full information
+            'cookiefile': COOKIES_FILE,  # Use the cookies from the specified file
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             search_results = ydl.extract_info(search_query, download=False)
@@ -166,7 +168,7 @@ def search_video():
                 continue
             video_url = f"https://www.youtube.com/watch?v={video_id}"
             duration = entry.get('duration')
-            # Extract the highest resolution thumbnail URL
+            # Extract the highest resolution thumbnail URL if available
             thumbnails = entry.get('thumbnails', [])
             thumbnail_url = thumbnails[-1]['url'] if thumbnails else None
             results.append({
