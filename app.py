@@ -141,7 +141,7 @@ def download_video(video_url):
 def search_video():
     """
     Search for a YouTube video directly using yt_dlp's ytsearch feature.
-    Returns a list of up to 5 search results with title, video URL, duration, and thumbnail.
+    Returns a list of up to 5 search results with title, video URL, duration, and thumbnail URL.
     """
     try:
         query = request.args.get('title')
@@ -153,27 +153,27 @@ def search_video():
         ydl_opts = {
             'quiet': True,
             'skip_download': True,
-            'extract_flat': True  # returns a list of video entries without further processing
+            'extract_flat': False,  # Set to False to extract full information
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             search_results = ydl.extract_info(search_query, download=False)
         
         results = []
-        # Iterate over the returned entries.
         for entry in search_results.get('entries', []):
             title = entry.get('title')
             video_id = entry.get('id')
             if not video_id:
                 continue
             video_url = f"https://www.youtube.com/watch?v={video_id}"
-            # Duration may be available in seconds; if not, you may leave it as None.
             duration = entry.get('duration')
-            thumbnail = entry.get('thumbnail')
+            # Extract the highest resolution thumbnail URL
+            thumbnails = entry.get('thumbnails', [])
+            thumbnail_url = thumbnails[-1]['url'] if thumbnails else None
             results.append({
                 "title": title,
                 "url": video_url,
                 "duration": duration,
-                "thumbnail": thumbnail
+                "thumbnail": thumbnail_url
             })
         
         if not results:
