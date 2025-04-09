@@ -30,8 +30,8 @@ MAX_CACHE_SIZE = 500 * 1024 * 1024  # 500MB
 # Path to your cookies file (if needed)
 COOKIES_FILE = "cookies.txt"  # Replace with your actual cookies file path if required
 
-# Search API URL (used both for regular searches and Spotify link resolution)
-SEARCH_API_URL = "https://odd-block-a945.tenopno.workers.dev/search?title="
+# Remove the external search API URL since we are now searching directly on YouTube
+# SEARCH_API_URL = "https://odd-block-a945.tenopno.workers.dev/search?title="
 
 def get_cache_key(video_url):
     """Generate a cache key from the video URL."""
@@ -94,44 +94,14 @@ def download_audio(video_url):
 
 def resolve_spotify_link(url):
     """
-    If the URL is a Spotify link, use the search API to find the corresponding YouTube link.
+    If the URL is a Spotify link, use an external service to find the corresponding YouTube link.
     Otherwise, return the URL unchanged.
     """
     if "spotify.com" in url:
-        response = requests.get(SEARCH_API_URL + url)
-        if response.status_code != 200:
-            raise Exception("Failed to fetch search results for the Spotify link")
-        search_result = response.json()
-        if not search_result or 'link' not in search_result:
-            raise Exception("No YouTube link found for the given Spotify link")
-        return search_result['link']
+        # You may need to implement your own Spotify resolution if desired.
+        # For now, raise an exception.
+        raise Exception("Spotify links are not supported in this version.")
     return url
-
-@app.route('/search', methods=['GET'])
-def search_video():
-    """
-    Search for a YouTube video using the external API.
-    """
-    try:
-        query = request.args.get('title')
-        if not query:
-            return jsonify({"error": "The 'title' parameter is required"}), 400
-
-        response = requests.get(SEARCH_API_URL + query)
-        if response.status_code != 200:
-            return jsonify({"error": "Failed to fetch search results"}), 500
-
-        search_result = response.json()
-        if not search_result or 'link' not in search_result:
-            return jsonify({"error": "No videos found for the given query"}), 404
-
-        return jsonify({
-            "title": search_result["title"],
-            "url": search_result["link"],
-            "duration": search_result.get("duration"),
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 def download_video(video_url):
     """
@@ -167,6 +137,52 @@ def download_video(video_url):
         except Exception as e:
             raise Exception(f"Error downloading video: {e}")
 
+@app.route('/search', methods=['GET'])
+def search_video():
+    """
+    Search for a YouTube video directly using yt_dlp's ytsearch feature.
+    Returns a list of up to 5 search results with title, video URL, duration, and thumbnail.
+    """
+    try:
+        query = request.args.get('title')
+        if not query:
+            return jsonify({"error": "The 'title' parameter is required"}), 400
+
+        # Use yt_dlp with the ytsearch protocol.
+        search_query = f"ytsearch5:{query}"
+        ydl_opts = {
+            'quiet': True,
+            'skip_download': True,
+            'extract_flat': True  # returns a list of video entries without further processing
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            search_results = ydl.extract_info(search_query, download=False)
+        
+        results = []
+        # Iterate over the returned entries.
+        for entry in search_results.get('entries', []):
+            title = entry.get('title')
+            video_id = entry.get('id')
+            if not video_id:
+                continue
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            # Duration may be available in seconds; if not, you may leave it as None.
+            duration = entry.get('duration')
+            thumbnail = entry.get('thumbnail')
+            results.append({
+                "title": title,
+                "url": video_url,
+                "duration": duration,
+                "thumbnail": thumbnail
+            })
+        
+        if not results:
+            return jsonify({"error": "No videos found for the given query"}), 404
+        
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/vdown', methods=['GET'])
 def download_video_endpoint():
     """
@@ -181,13 +197,20 @@ def download_video_endpoint():
             return jsonify({"error": "Either 'url' or 'title' parameter is required"}), 400
 
         if video_title and not video_url:
-            response = requests.get(SEARCH_API_URL + video_title)
-            if response.status_code != 200:
-                return jsonify({"error": "Failed to fetch search results"}), 500
-            search_result = response.json()
-            if not search_result or 'link' not in search_result:
+            # Here you could call your search endpoint or use the search function directly.
+            # For simplicity, using the search logic here:
+            search_query = f"ytsearch1:{video_title}"
+            ydl_opts = {
+                'quiet': True,
+                'skip_download': True,
+                'extract_flat': True
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                search_results = ydl.extract_info(search_query, download=False)
+            entries = search_results.get('entries', [])
+            if not entries:
                 return jsonify({"error": "No videos found for the given query"}), 404
-            video_url = search_result['link']
+            video_url = f"https://www.youtube.com/watch?v={entries[0].get('id')}"
 
         if video_url and "spotify.com" in video_url:
             video_url = resolve_spotify_link(video_url)
@@ -215,7 +238,7 @@ def download_audio_endpoint():
     """
     Download audio from a YouTube video URL or search for it by title and download.
     Utilizes caching so repeated downloads for the same video are avoided.
-    Also supports Spotify links by resolving them via the search API.
+    Also supports Spotify links by resolving them.
     """
     try:
         video_url = request.args.get('url')
@@ -225,13 +248,18 @@ def download_audio_endpoint():
             return jsonify({"error": "Either 'url' or 'title' parameter is required"}), 400
 
         if video_title and not video_url:
-            response = requests.get(SEARCH_API_URL + video_title)
-            if response.status_code != 200:
-                return jsonify({"error": "Failed to fetch search results"}), 500
-            search_result = response.json()
-            if not search_result or 'link' not in search_result:
+            search_query = f"ytsearch1:{video_title}"
+            ydl_opts = {
+                'quiet': True,
+                'skip_download': True,
+                'extract_flat': True
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                search_results = ydl.extract_info(search_query, download=False)
+            entries = search_results.get('entries', [])
+            if not entries:
                 return jsonify({"error": "No videos found for the given query"}), 404
-            video_url = search_result['link']
+            video_url = f"https://www.youtube.com/watch?v={entries[0].get('id')}"
 
         if video_url and "spotify.com" in video_url:
             video_url = resolve_spotify_link(video_url)
@@ -261,8 +289,8 @@ def home():
     <p>Use this API to search and download audio from YouTube videos.</p>
     <p><strong>Endpoints:</strong></p>
     <ul>
-        <li><strong>/search</strong>: Search for a video by title. Query parameter: <code>?title=</code></li>
-        <li><strong>/download</strong>: Download audio by URL or search for a title and download. Query parameters: <code>?url=</code> or <code>?title=</code></li>
+        <li><strong>/search</strong>: Search for a video by title (now using direct YouTube search via yt_dlp).</li>
+        <li><strong>/download</strong>: Download audio by URL or search for a title and download.</li>
         <li><strong>/vdown</strong>: Download video (240p + worst audio) by URL or search for a title and download.</li>
     </ul>
     <p>Examples:</p>
@@ -271,7 +299,6 @@ def home():
         <li>Download by URL (audio): <code>/download?url=https://www.youtube.com/watch?v=dQw4w9WgXcQ</code></li>
         <li>Download by Title (audio): <code>/download?title=Your%20Favorite%20Song</code></li>
         <li>Download by URL (video): <code>/vdown?url=https://www.youtube.com/watch?v=dQw4w9WgXcQ</code></li>
-        <li>Download from Spotify: <code>/download?url=https://open.spotify.com/track/...</code></li>
     </ul>
     """
 
