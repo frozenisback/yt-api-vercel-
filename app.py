@@ -28,6 +28,10 @@ if os.path.exists(cookie_file):
 
 app = Flask(__name__)
 
+@app.route('/')
+def home():
+    return jsonify({"message": "✅ YouTube Search API is alive!"})
+
 @app.route('/search', methods=['GET'])
 def search():
     # Retrieve and validate the 'title' query parameter.
@@ -59,3 +63,4 @@ def search():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
