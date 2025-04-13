@@ -62,5 +62,9 @@ def search():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Use the port specified in environment variables or default to 5000.
+    port = int(os.environ.get("PORT", 5000))
+    # Bind to 0.0.0.0 so the server is accessible externally.
+    app.run(host='0.0.0.0', port=port, debug=True)
+
 
