@@ -32,29 +32,44 @@ app = Flask(__name__)
 def home():
     return jsonify({"message": "✅ YouTube Search API is alive!"})
 
+# Helper to convert "MM:SS" or "HH:MM:SS" to ISO 8601 duration (PT...)
+def to_iso_duration(duration_str: str) -> str:
+    parts = duration_str.split(':') if duration_str else []
+    iso = 'PT'
+    if len(parts) == 3:
+        h, m, s = parts
+        if int(h):
+            iso += f"{int(h)}H"
+        iso += f"{int(m)}M{int(s)}S"
+    elif len(parts) == 2:
+        m, s = parts
+        iso += f"{int(m)}M{int(s)}S"
+    elif len(parts) == 1 and parts[0].isdigit():
+        iso += f"{int(parts[0])}S"
+    else:
+        # Fallback if format unexpected
+        iso += '0S'
+    return iso
+
 @app.route('/search', methods=['GET'])
 def search():
-    # Retrieve and validate the 'title' query parameter.
     title = request.args.get('title', '').strip()
     if not title:
         return jsonify({"error": "Missing 'title' query parameter."}), 400
 
     try:
-        # Perform the YouTube search (limit to 10 results)
         results = YoutubeSearch(title, max_results=10).to_dict()
-
         if not results:
             return jsonify({"error": "No results found."}), 404
 
-        # Use only the first video result
         first_video = results[0]
+        iso_duration = to_iso_duration(first_video.get('duration', ''))
+        video_id = first_video.get('url_suffix').split('v=')[-1]
         video_data = {
             "title": first_video.get("title"),
-            # The thumbnails field is returned as a list; we take the first thumbnail.
-            "thumbnail": first_video.get("thumbnails", [None])[0],
-            "duration": first_video.get("duration"),
-            # Construct the full video URL using the provided URL suffix.
-            "link": "https://www.youtube.com" + first_video.get("url_suffix", "")
+            "link": f"https://www.youtube.com/watch?v={video_id}",
+            "duration": iso_duration,
+            "thumbnail": first_video.get("thumbnails", [None])[0]
         }
 
         return jsonify(video_data)
@@ -62,9 +77,7 @@ def search():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    # Use the port specified in environment variables or default to 5000.
     port = int(os.environ.get("PORT", 5000))
-    # Bind to 0.0.0.0 so the server is accessible externally.
     app.run(host='0.0.0.0', port=port, debug=True)
 
 
